@@ -26,9 +26,9 @@ const char* ntpServers[] = {
   "time.apple.com",
   "ntp.ubuntu.com",
   "time.cloudflare.com",
-  "129.6.15.28",      // time-a.nist.gov IP direto
-  "216.239.35.0",     // time.google.com IP (exemplo)
-  "132.163.96.1"      // ntp1.jst.mfeed.ad.jp (exemplo)
+  "129.6.15.28",
+  "216.239.35.0",
+  "132.163.96.1"
 };
 const int ntpServersCount = sizeof(ntpServers) / sizeof(ntpServers[0]);
 
@@ -40,13 +40,26 @@ bool sincronizandoNTP = false;
 unsigned long ultimaSincronizacao = 0;
 const unsigned long intervaloNTP = 86400000; // 24 horas em milissegundos
 
-// Array com os dias da semana em Português (0 = Domingo, 6 = Sábado)
-const char diasDaSemana[7][4] = {"DOM", "SEG", "TER", "QUA", "QUI", "SEX", "SAB"};
-
 // Protótipos
 void ajustarHoraViaSerial();
 bool ajustarComNTP(String param = "");
 void ajustarBrilho(int brilho);
+
+// ======================================================================
+// EIXO SÓLIDO: Função à prova de falhas para o Dia da Semana
+// ======================================================================
+String obterDiaSemana(int dia) {
+  switch (dia) {
+    case 0: return "DOM";
+    case 1: return "SEG";
+    case 2: return "TER";
+    case 3: return "QUA";
+    case 4: return "QUI";
+    case 5: return "SEX";
+    case 6: return "SAB";
+    default: return "???"; // Se o RTC pifar, retorna interrogação, mas NÃO trava a placa.
+  }
+}
 
 void setup() {
   Serial.begin(115200);
@@ -60,9 +73,11 @@ void setup() {
 
   if (!rtc.begin()) {
     Serial.println("RTC não encontrado!");
-    while (1);
+    while (1) {
+      delay(10); // Mantém o Watchdog feliz se houver erro crítico
+    }
   }
-  delay(2000); // Dá um fôlego para os capacitores do RTC carregarem no boot
+  delay(2000); // Dá um fôlego no boot
 
   if (rtc.lostPower()) {
     Serial.println("RTC perdeu energia. Ajustando para hora do PC...");
@@ -84,7 +99,6 @@ void loop() {
     if (comando.startsWith("ntp")) {
       if (!sincronizandoNTP) {
         sincronizandoNTP = true;
-
         String param = "";
         int espacoIndex = comando.indexOf(' ');
         if (espacoIndex != -1) {
@@ -95,7 +109,7 @@ void loop() {
         Serial.println("⌛ Iniciando sincronização NTP manual...");
         if (ajustarComNTP(param)) {
           Serial.println("🎉 Sincronização NTP concluída!");
-          ultimaSincronizacao = millis(); // Reseta o cronômetro automático
+          ultimaSincronizacao = millis(); // Reseta o cronômetro
         } else {
           Serial.println("⚠️ Falha na sincronização NTP.");
         }
@@ -117,12 +131,12 @@ void loop() {
     Serial.println("\n[SISTEMA] Iniciando sincronização automática de 24h...");
     sincronizandoNTP = true;
     
-    if (ajustarComNTP("-3")) { // Fuso GMT-3 fixo para o automático
+    if (ajustarComNTP("-3")) { // Fuso fixo GMT-3
       Serial.println("[SISTEMA] Sincronização automática bem-sucedida!");
       ultimaSincronizacao = millis();
     } else {
       Serial.println("[SISTEMA] Falha. Tentará novamente em 1 hora.");
-      ultimaSincronizacao = millis() - intervaloNTP + 3600000; // Recua 1 hora
+      ultimaSincronizacao = millis() - intervaloNTP + 3600000;
     }
     sincronizandoNTP = false;
   }
@@ -131,21 +145,23 @@ void loop() {
   if (!sincronizandoNTP) {
     if (millis() - heartbeatLast > 10000) {
       DateTime agora = rtc.now();
+      String textoDia = obterDiaSemana(agora.dayOfTheWeek());
+      
       Serial.printf("\n⏳ RTC rodando: %02d:%02d:%02d | Data: %s %02d/%02d/%04d\n", 
                     agora.hour(), agora.minute(), agora.second(), 
-                    diasDaSemana[agora.dayOfTheWeek()], agora.day(), agora.month(), agora.year());
+                    textoDia.c_str(), agora.day(), agora.month(), agora.year());
       heartbeatLast = millis();
     }
   }
 
   // 4. MÁQUINA DE ESTADOS DO DISPLAY (Hora <-> Data)
-  static uint8_t modo = 0;  // 0 = Hora, 1 = Data ("QUI 05")
+  static uint8_t modo = 0;  // 0 = Hora, 1 = Data
   static uint32_t ultimaTroca = 0;
   static char ultimaMensagem[32] = "";
   static bool primeiraVez = true;
 
   uint32_t tempoAtual = millis();
-  uint32_t duracaoModo = (modo == 0) ? 15000 : 4000; // 15s para hora, 4s para data
+  uint32_t duracaoModo = (modo == 0) ? 15000 : 4000;
 
   if (tempoAtual - ultimaTroca > duracaoModo) {
     modo = (modo == 0) ? 1 : 0;
@@ -154,18 +170,15 @@ void loop() {
   }
 
   char novaMensagem[32];
-  DateTime now = rtc.now(); // Puxa o pacote de dados do chip DS3231
+  DateTime now = rtc.now();
 
   if (modo == 0) {
-    // Renderiza a Hora (Ex: 22:50)
-    sprintf(novaMensagem, "%02d:%02d", now.hour(), now.minute());
+    snprintf(novaMensagem, sizeof(novaMensagem), "%02d:%02d", now.hour(), now.minute());
   } else {
-    // Renderiza o Dia da Semana e o Dia do Mês (Ex: QUI 05)
-    int diaSemanaInt = now.dayOfTheWeek();
-    sprintf(novaMensagem, "%s %02d", diasDaSemana[diaSemanaInt], now.day());
+    String textoDia = obterDiaSemana(now.dayOfTheWeek());
+    snprintf(novaMensagem, sizeof(novaMensagem), "%s %02d", textoDia.c_str(), now.day());
   }
 
-  // Só aciona o barramento SPI se a mensagem mudou (economiza CPU e evita LEDs piscando)
   if (strcmp(novaMensagem, ultimaMensagem) != 0 || primeiraVez) {
     strcpy(ultimaMensagem, novaMensagem);
     display.displayClear();
@@ -186,7 +199,10 @@ void ajustarHoraViaSerial() {
   Serial.println("Exemplo: 2026-03-05 22:50:00");
   Serial.print(">> ");
 
-  while (!Serial.available());
+  while (!Serial.available()) {
+    delay(10);
+  }
+  
   String entrada = Serial.readStringUntil('\n');
   entrada.trim();
 
@@ -244,7 +260,7 @@ bool ajustarComNTP(String param) {
         updated = true;
         break;
       }
-      delay(100);
+      delay(10); 
     }
 
     if (updated) {
@@ -260,6 +276,6 @@ bool ajustarComNTP(String param) {
     timeClient.end();
   }
 
-  WiFi.disconnect(true); // Isola o rádio para eficiência térmica/elétrica
+  WiFi.disconnect(true);
   return sucesso;
 }
