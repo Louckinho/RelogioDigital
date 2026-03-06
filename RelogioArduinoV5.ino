@@ -62,22 +62,30 @@ String obterDiaSemana(int dia) {
 }
 
 void setup() {
+  // 1. SOFT-STARTER: Desliga o rádio Wi-Fi IMEDIATAMENTE no boot
+  WiFi.mode(WIFI_OFF);
+  WiFi.forceSleepBegin();
+  delay(200); // Dá tempo para a fonte e os capacitores estabilizarem a tensão de 5V
+
   Serial.begin(115200);
   Wire.begin(D2, D1);  // SDA = D2, SCL = D1 no NodeMCU
 
+  // 2. LIGA O DISPLAY NO ESCURO (Evita o pico de 1000mA dos LEDs)
   display.begin();
-  display.setIntensity(1);
+  display.setIntensity(0); // Força brilho zero
   display.setSpeed(80);
   display.setPause(1000);
   display.displayClear();
+  delay(500); // Fôlego para o barramento SPI
 
+  // 3. INICIA O SENSOR RTC
   if (!rtc.begin()) {
     Serial.println("RTC não encontrado!");
     while (1) {
       delay(10); // Mantém o Watchdog feliz se houver erro crítico
     }
   }
-  delay(2000); // Dá um fôlego no boot
+  delay(1000); // Fôlego para os capacitores do DS3231
 
   if (rtc.lostPower()) {
     Serial.println("RTC perdeu energia. Ajustando para hora do PC...");
@@ -88,6 +96,10 @@ void setup() {
   Serial.println("🕹 Digite 'ajustar' no console para configurar a hora manualmente.");
   Serial.println("🕹 Digite 'ntp' seguido do offset de horário (ex: ntp -3 para GMT-3).");
   Serial.println("🕹 Digite um número de 0 a 15 para ajustar o brilho do display.");
+
+  // 4. RESTAURA A ENERGIA NORMAL
+  display.setIntensity(1);
+  Serial.println("✅ BOOT SEGURO CONCLUÍDO. Sistema Estável.");
 }
 
 void loop() {
@@ -168,7 +180,7 @@ void loop() {
   static bool primeiraVez = true;
 
   uint32_t tempoAtual = millis();
-  uint32_t duracaoModo = (modo == 0) ? 15000 : 3000;
+  uint32_t duracaoModo = (modo == 0) ? 20000 : 3000;
 
   if (tempoAtual - ultimaTroca > duracaoModo) {
     modo = (modo == 0) ? 1 : 0;
@@ -234,7 +246,7 @@ void ajustarBrilho(int brilho) {
 
 bool ajustarComNTP(String param) {
   Serial.println("🌐 Conectando ao Wi-Fi...");
-  WiFi.mode(WIFI_STA);
+  WiFi.mode(WIFI_STA); // Religa o Wi-Fi apenas quando precisar sincronizar
   WiFi.begin(ssid, password, 0, nullptr, true);
 
   unsigned long startWiFi = millis();
@@ -283,6 +295,6 @@ bool ajustarComNTP(String param) {
     timeClient.end();
   }
 
-  WiFi.disconnect(true);
+  WiFi.disconnect(true); // Isola o rádio novamente após a sincronização
   return sucesso;
 }
