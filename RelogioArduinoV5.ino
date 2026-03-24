@@ -50,13 +50,13 @@ void ajustarBrilho(int brilho);
 // ======================================================================
 String obterDiaSemana(int dia) {
   switch (dia) {
-    case 0: return "DOM";
-    case 1: return "SEG";
-    case 2: return "TER";
-    case 3: return "QUA";
-    case 4: return "QUI";
-    case 5: return "SEX";
-    case 6: return "SAB";
+    case 0: return "SUN";
+    case 1: return "MON";
+    case 2: return "TUE";
+    case 3: return "WED";
+    case 4: return "THU";
+    case 5: return "FRI";
+    case 6: return "SAT";
     default: return "???"; // Se o RTC pifar, retorna interrogação, mas NÃO trava a placa.
   }
 }
@@ -65,7 +65,7 @@ void setup() {
   // 1. SOFT-STARTER: Desliga o rádio Wi-Fi IMEDIATAMENTE no boot
   WiFi.mode(WIFI_OFF);
   WiFi.forceSleepBegin();
-  delay(200); // Dá tempo para a fonte e os capacitores estabilizarem a tensão de 5V
+  delay(400); // Dá tempo para a fonte e os capacitores estabilizarem a tensão de 5V
 
   Serial.begin(115200);
   Wire.begin(D2, D1);  // SDA = D2, SCL = D1 no NodeMCU
@@ -87,7 +87,7 @@ void setup() {
   }
   delay(1000); // Fôlego para os capacitores do DS3231
 
-  if (rtc.lostPower()) {
+  if (rtc.lostPower()) { 
     Serial.println("RTC perdeu energia. Ajustando para hora do PC...");
     rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
     Serial.println("✅ RTC ajustado com hora do computador.");
